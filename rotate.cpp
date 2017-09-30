@@ -73,10 +73,22 @@ int main(void) {
 	}
 
 	for (int i=0; i<height; i++) {
-		for (int j=0; j<width/2; j++) {
+		for (int j=0; j<width; j++) {
 			struct pixel* p1 = &pixels[i][j];
-			struct pixel* p2 = &pixels[i][width-j-1];
-			swap_pixel(p1, p2);
+
+			int new_row = j;
+			int new_col = height-1-i;
+			// validation
+			if (height && new_row < height && new_col < width) {
+				struct pixel* p2 = &pixels[new_row][new_col];
+				if (i < j*-1 + height-1 || new_row < new_col*-1 + height)
+					swap_pixel(p1, p2);
+			} else {
+				*p1->r=0x00;
+				*p1->g=0x00;
+				*p1->b=0x00;
+			}
+
 		}
 	}
 
