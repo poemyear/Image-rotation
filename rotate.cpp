@@ -8,54 +8,99 @@
 #define HEADER_SIZE  54
 #define WIDTH_INDEX  18
 #define HEIGHT_INDEX 22
-#define PI 3.141592
+#define pi 3.141592653589793238462643383279
 
 using namespace std;
 
 struct pixel {
-	int R;
-	int G;
-	int B;
-	unsigned char* r;
-	unsigned char* g;
-	unsigned char* b;
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
 };
 
-int value(unsigned char c);
-void swap_char(unsigned char* c1, unsigned char *c2) {
-	unsigned char tmp = *c1;
-	*c1 = *c2;
-	*c2 = tmp;
+void writeFile(char *filename, unsigned char *header, unsigned char* data, int size);
+void loadFile(char *filename, unsigned char **header, unsigned char **data, int *height, int *width, int *row_padded, int *size);
+struct pixel **rotate(struct pixel** p, int width, int height, int angle);
+struct pixel **readBMP(unsigned char *, int, int);
+void writePixel(unsigned char *, int *, struct pixel);
+
+int main(void) {
+	char fname[30] = {"lena_24_crop.bmp"};
+	char fname2[30] = {"lena_24_crop_converted.bmp"};
+	
+	unsigned char* header, *data;
+	int width, height, row_padded, size;
+	loadFile(fname, &header, &data, &height, &width, &row_padded, &size);
+
+	struct pixel **pixels = readBMP(data, width, height);
+	struct pixel **out = rotate(pixels, width, height, 45);
+
+	for (int y=0, idx=0; y<height; y++) {
+		for (int x=0; x<row_padded/3; x++) {
+			writePixel(data, &idx, out[y][x]);
+		}
+	}
+
+	writeFile(fname2, header, data, size);
+	for(int i=0;i<height;i++)
+		free(pixels[i]);
+	free(pixels);
+	return 0;
 }
 
-void swap_pixel(struct pixel *p1, struct pixel *p2) {
-	swap_char(p1->r, p2->r);
-	swap_char(p1->g, p2->g);
-	swap_char(p1->b, p2->b);
+void writePixel(unsigned char *data, int *idx, struct pixel pixel) {
+	data[(*idx)++] = pixel.r;
+	data[(*idx)++] = pixel.g;
+	data[(*idx)++] = pixel.b;
 }
 
-int width, height;
-void readBMP(struct pixel***, unsigned char**, int, int);
+struct pixel **rotate(struct pixel** pixels, int width, int height, int angle) {
+	int new_row;
+	int new_col;
+	
+	double radian = angle*pi/180.0;
+	double x0 = (double) width/2.0;
+	double y0 = (double) height/2.0;
 
-void rotate(struct pixel***, int, int, int);
+	struct pixel **out = new struct pixel*[height];
+	for(int i=0;i<height;i++)
+		out[i] = new struct pixel[width];
 
-void rotatePoint(int x, int y, int *new_x, int *new_y, int angle){
-	double rad = angle * (PI/180);
-	*new_x = cos(rad) * x - sin(rad) * y;
-	*new_y = sin(rad) * x + cos(rad) * y;
-};
+	for (int y=0; y<height; y++) {
+		for (int x=0; x<width; x++) {
+			new_col = ( y - y0 ) * sin(radian) + ( x - x0 ) * cos(radian) + x0;
+			new_row = ( y - y0 ) * cos(radian) - ( x - x0 ) * sin(radian) + y0;
+			if (new_row < 0 || new_col < 0 || new_row >= height || new_col >= width) {
+				out[y][x].r = 0x00;
+				out[y][x].g = 0x00;
+				out[y][x].b = 0x00;
+			}else {
+				out[y][x] = pixels[new_row][new_col];
+			}
+		}
+	}
+	return out;
+}
 
-int getRotatedIdx(int i, int j, int width, int height, int *new_row, int *new_col, int angle){
-	int origin_x = width/2;
-	int origin_y = height/2;
+struct pixel **readBMP(unsigned char* d, int width, int height){
+	struct pixel **pixels = new struct pixel*[height];
+	for(int i=0;i<height;i++)
+		pixels[i] = new struct pixel[width];
+	int row_padded = (width*3 + 3) & (~3);
 
-	int new_x, new_y;
-	rotatePoint(j-origin_x, (i-origin_y)*-1, &new_x, &new_y, angle);
-	*new_row = (new_y - origin_y) * -1;
-	*new_col = new_x + origin_x;
-
-	return false;
-};
+	int idx = 0;
+	for (int i=0; i < height; i++) {
+		for (int j=0; j<row_padded/3; j++, idx+=3) {
+			if (j < width) {
+				struct pixel* pixel = &pixels[i][j];
+				pixel->r = d[idx];
+				pixel->g = d[idx+1];
+				pixel->b = d[idx+2];
+			}
+		}
+	}
+	return pixels;
+}
 
 void writeFile(char *filename, unsigned char *header, unsigned char* data, int size) {
 	FILE* f = fopen(filename, "w+t");
@@ -64,101 +109,21 @@ void writeFile(char *filename, unsigned char *header, unsigned char* data, int s
 	fclose(f);
 };
 
-
-bool **rotated;
-
-int main(void) {
-	char filename[30] = {"lena_24_crop.bmp"};
+void loadFile(char *filename, unsigned char **header, unsigned char **data, int *height, int *width, int *row_padded, int *size) {
 	FILE* f = fopen(filename, "rb");
-	unsigned char header[HEADER_SIZE];
-	fread(header, sizeof(unsigned char), HEADER_SIZE, f);
+	*header = new unsigned char[HEADER_SIZE];
+	fread(*header, sizeof(unsigned char), HEADER_SIZE, f);
 
-	int width = *(int*) &header[WIDTH_INDEX];
-	int height = *(int* ) &header[HEIGHT_INDEX];
+	*width = *(int*) &(*header)[WIDTH_INDEX];
+	*height = *(int* ) &(*header)[HEIGHT_INDEX];
 
+	*row_padded = (*width*3 + 3) & (~3);
+	*size = *row_padded * *height;
 
-	int row_padded = (width*3 + 3) & (~3);
-	int size = row_padded * height;
-
-	unsigned char* data = new unsigned char[size];
-	fread(data, sizeof(unsigned char), size, f);
+	*data = new unsigned char[*size];
+	fread(*data, sizeof(unsigned char), *size, f);
 	fclose(f);
 
-	struct pixel** pixels = new struct pixel*[height];
-	for(int i=0;i<height;i++)
-		pixels[i] = new struct pixel[row_padded/3];
-
-	rotated = new bool*[height];
-	for(int i=0;i<height;i++)
-		rotated[i] = new bool[row_padded/3];
-
-	readBMP(&pixels, &data, width, height);
-	rotate(&pixels, width, height, 90);
-
-	char newName[30] =  "lena_24_crop_converted.bmp";
-	writeFile(newName, header, data, size);
-
-	for(int i=0;i<height;i++)
-		free(pixels[i]);
-	free(pixels);
-	return 0;
-}
-
-void rotate(struct pixel*** p, int width, int height, int angle) {
-
-	struct pixel ** pixels = *p;
-	for (int i=0; i<height; i++) {
-		for (int j=0; j<width; j++) {
-			if (rotated[i][j])
-				continue;
-			struct pixel* p1 = &pixels[i][j];
-			int new_row;
-			int new_col;
-			getRotatedIdx(i, j, width, height, &new_row, &new_col, angle);
-
-			// validation
-			if (new_row > 0 && new_col > 0
-					&& new_row < height && new_col < width) {
-				struct pixel* p2 = &pixels[new_row][new_col];
-				swap_pixel(p1, p2);
-				rotated[new_row][new_col] = true;
-			} else {
-				*p1->r=0x00;
-				*p1->g=0x00;
-				*p1->b=0x00;
-			}
-
-		}
-	}
-}
-
-
-void readBMP(struct pixel*** p, unsigned char** d, int width, int height){
-	struct pixel** pixels = *p;
-	struct pixel* pixel;
-	unsigned char* data = *d;
-
-	int row_padded = (width*3 + 3) & (~3);
-	int idx = 0;
-	for (int i=0; i < height; i++) {
-		for (int j=0; j<row_padded/3; j++, idx+=3) {
-
-			pixel = &pixels[i][j];
-
-			pixel->r = &data[idx];
-			pixel->g = &data[idx+1];
-			pixel->b = &data[idx+2];
-
-			pixel->R= value(*pixel->r);
-			pixel->G= value(*pixel->g);
-			pixel->B= value(*pixel->b);
-		}
-	}
-
 
 }
 
-
-int value(unsigned char c) {
-	return int(c & 0xff);
-}
